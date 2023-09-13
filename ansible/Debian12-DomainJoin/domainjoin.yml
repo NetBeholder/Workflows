@@ -1,0 +1,88 @@
+---
+- hosts: domain_join_hosts
+  become: yes
+  vars:
+    domain_name: "lol-kek.lol"
+    realm_name: "LOL-KEK.LOL"
+      #    ad_dja: {{ DomainJoinAccount }}
+    ad_dja: "ad_dja"
+    ad_dja_passwd: "P@ssw0rd"
+    krb5_conf:
+      realms_section:
+        kdc:
+          - dc01.lol-kek.lol
+          - dc02.lol-kek.lol
+  pre_tasks:
+    - name: apt update
+      apt:
+        update_cache: yes
+        cache_valid_time: 900
+    - name: install packages
+      apt:
+        pkg:
+          - python3-pexpect
+          - realmd
+          - sssd 
+          - sssd-tools
+          - sssd-ad
+          - libnss-sss
+          - libpam-sss
+          - adcli
+          - samba-common-bin
+          - oddjob
+          - oddjob-mkhomedir
+          - packagekit
+          - krb5-user
+        state: latest
+  tasks:
+    - name: check domain membership status
+      ansible.builtin.shell: adcli testjoin -D {{ domain_name }}
+      register: ad_membership_status
+      ignore_errors: true
+
+    - debug: var=ad_membership_status
+
+    - name: join to {{ domain_name }} domain
+      block:
+        - name: realmd.conf
+          ansible.builtin.copy:
+            dest: /etc/realmd.conf
+            content: |
+              [active-directory]
+              os-name = Debian GNU/Linux
+              os-version = 12 (Bookwarm)
+            backup: yes
+
+        - name: krb5.conf
+          ansible.builtin.template:
+            src: templates/krb5.conf.j2
+            dest: /etc/krb5.conf
+            backup: yes
+
+              #        - name: sssd.conf
+              #          ansible.builtin.template:
+              #            src: templates/sssd.conf.j2
+              #            dest: /etc/sssd/sssd.conf
+              #            backup: yes
+
+        - name: join
+          ansible.builtin.expect:
+            command: /bin/bash -c "/usr/sbin/realm join -U {{ ad_dja }} {{ domain_name }}"
+            responses:
+          #Password for *: "{{ ad_dja_passwd | password_hash('sha512') }}"
+              Password for *: "{{ ad_dja_passwd }}"
+              no_log: true
+
+        - name: "lets create home dirs for domain users"
+          ansible.builtin.shell: "pam-auth-update --enable mkhomedir"
+
+        - name: allow domain users to login without UPN
+          ansible.builtin.lineinfile:
+            backup: yes
+            state: present
+            dest: /etc/sssd/sssd.conf
+            regexp: '^use_fully_qualified_names'
+            line: 'use_fully_qualified_names = False'
+
+      when:
+        ad_membership_status.stderr != ""

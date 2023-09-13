@@ -1,0 +1,173 @@
+# Initial Debian 12 Server setup
+#
+#
+---
+- hosts: preparehosts
+  #become: true
+  vars:
+    #ssh_port: "22"
+  pre_tasks:
+    - name: apt update
+      apt:
+        update_cache: yes
+        cache_valid_time: 900
+    - name: apt upgrade
+      apt: 
+        upgrade: yes
+    - name: check/install sudo package
+      apt:
+        pkg:
+          - sudo
+        state: latest
+          #    - name: create wheel group (for su restricted escalation via pam)
+          #      ansible.builtin.group:
+          #        name: wheel
+          #        system: yes
+          #        state: present
+  tasks:
+    - name: create user with sudo privileges
+      ansible.builtin.user:
+        name: "{{ AnsibleUserName }}"
+        password: "{{ AnsibleUserName_passwd | password_hash('sha512') }}"
+        shell: /bin/bash
+        groups: sudo
+        append: yes
+
+    - name: sudoers settings for user {{ AnsibleUserName }}
+      copy:
+        dest: "/etc/sudoers.d/{{ AnsibleUserName }}"
+        content: |
+          {{ AnsibleUserName }} ALL=(ALL) NOPASSWD:ALL
+
+    - name: generate keys pair for newly created user.
+      become: false
+      delegate_to: localhost
+      community.crypto.openssh_keypair:
+        path: keys/{{ AnsibleUserName }}_ssh_ed25519
+        type: ed25519
+        mode: '0400'
+
+    - name: Set authorized key taken from file on remote server
+      ansible.posix.authorized_key:
+        user: "{{ AnsibleUserName }}"
+        state: present
+        key: "{{ lookup('file', 'keys/{{ AnsibleUserName }}_ssh_ed25519.pub') }}"
+
+    - name: set /etc/hosts settings part 1
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        search_string: '127.0.0.1'
+        line: "127.0.0.1 localhost"
+
+    - name: set /etc/hosts settings part 2
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        search_string: '127.0.1.1'
+        line: "127.0.1.1 {{ host_fqdn }} {{ hostname }}"
+
+    - name: check /etc/hostname
+      ansible.builtin.shell: cat /etc/hostname
+      register: host_hostname
+
+    - name: set hostname
+      ansible.builtin.shell: hostnamectl set-hostname {{ hostname }}
+      when: host_hostname.stdout != "{{ hostname }}"
+
+    - name: check timezone
+      ansible.builtin.shell: timedatectl show | grep Timezone | cut -d "=" -f2
+      register: tz
+
+    - name: set host's timezone
+      ansible.builtin.command: timedatectl set-timezone {{ timezone }}
+      when: tz.stdout != "{{ timezone }}"
+
+    - name: create drop-in folder for timcesyncd configs
+      ansible.builtin.file:
+        dest: /etc/systemd/timesyncd.conf.d/
+        state: directory
+
+    - name: set timesyncd drop-in file(s)
+      ansible.builtin.template:
+        src: configs/etc/systemd/timesyncd.conf.d/10-enterprise-time-settings.conf.j2
+        dest: /etc/systemd/timesyncd.conf.d/10-enterprise-time-settings.conf
+        force: yes
+
+    - name: get ntp service status
+      ansible.builtin.shell: timedatectl status | grep "NTP service" | cut -d":" -f2 | xargs
+      register: NTP_service_state
+
+    - name: set NTP service state as active
+      ansible.builtin.command: timedatectl set-ntp true
+      when: NTP_service_state.stdout != "active"
+
+    - name: NetworkManager settings
+      apt:
+        pkg:
+          - network-manager
+
+    - name: check masked status for networking.service
+      ansible.builtin.shell: systemctl status networking.service | grep -o "masked" | uniq
+      register: networking_service_masked_status
+
+    - name: mask ifupdown service
+      ansible.builtin.command: systemctl mask networking.service
+      when: networking_service_masked_status.stdout != "masked"
+
+    - name: stop networking.service
+      ansible.builtin.service:
+        name: networking
+        state: stopped
+
+    - name: check interfaces file backup exists
+      stat:
+        path: /etc/network/interfaces.back
+      register: interfaces_file_status
+
+    - name: backup interfaces.file
+      shell: mv /etc/network/interfaces /etc/network/interfaces.back
+      when: not interfaces_file_status.stat.exists
+      register: interfaces_file_status
+
+    - name: nmcli add connection for ethernet
+      community.general.nmcli:
+        type: ethernet
+        conn_name: "{{ nm_conn_name }}"
+        ifname: "{{ nm_ifname }}"
+        method4: auto
+        state: present
+
+    - name: check status of loopback interface
+      ansible.builtin.shell: nmcli d s | grep "loopback" | grep -o "(externally)" | tr -d '()'
+      register: loopback_status
+
+    - name: nmcli add connection for loopback
+      ansible.builtin.shell: "nmcli connection add connection.id lo connection.type loopback connection.interface-name lo connection.autoconnect yes"
+      when: loopback_status.stdout == "externally"
+
+    - name: print interfaces_file_state
+      ansible.builtin.debug:
+        var: interfaces_file_status
+
+    - name: restarted NetworkManager service
+      ansible.builtin.service:
+        name: NetworkManager
+        state: restarted
+      when: interfaces_file_status
+
+    - name: install some packages 
+      apt:
+        pkg:
+          - git
+          - curl
+          - htop
+          - pwgen
+          - neovim
+          - lf
+          - bind9-dnsutils
+          - debian-goodies
+          - cifs-utils
+          - samba-client
+          - psmisc
+          - tree
+        state: latest
+

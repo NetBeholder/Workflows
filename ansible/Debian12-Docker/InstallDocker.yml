@@ -1,0 +1,73 @@
+# Initial Debian 12 Server setup
+#
+#
+---
+- hosts: dockerhosts
+  become: true
+  vars:
+    #ssh_port: "22"
+  pre_tasks:
+    - name: apt update
+      apt:
+        update_cache: yes
+        cache_valid_time: 900
+
+    - name: Remove unofficial Docker packages
+      apt:
+        pkg:
+          - docker.io
+          - docker-compose
+          - docker-doc
+          - podman-docker
+        state: absent
+
+  tasks:
+    - name: Install some dependencies...
+      apt:
+        pkg:
+          - ca-certificates
+          - curl
+          - gnupg
+        state: present
+
+    - name: "Add Docker's official GPG key"
+      apt_key:
+        url: https://download.docker.com/linux/{{ ansible_distribution|lower }}/gpg
+        keyring: /etc/apt/keyrings/docker.gpg
+          #state: absent
+        state: present
+
+    - name: print distribution var
+      debug:
+        msg: Some facts {{ ansible_distribution_release }}
+
+    - name: Set up the repository
+      apt_repository:
+        repo: 'deb [signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/{{ ansible_distribution|lower }} {{ ansible_distribution_release }} stable'
+          #state: absent
+        state: present
+    - name: install Docker packages
+      apt:
+        pkg:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: latest
+        update_cache: true
+
+    - name: Add specific users from inventory to docker group 
+      user:
+        name: "{{ item }}"
+        groups: docker
+        append: yes
+      loop: "{{ DockerUsersList }}"
+
+    - name: test
+      shell: docker -v
+      register: result
+
+    - name: print test
+      debug:
+        var: result.stdout

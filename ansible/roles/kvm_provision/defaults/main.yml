@@ -1,0 +1,9 @@
+---
+# defaults file for kvm_provision
+#base_image_template_name: "template-win2022-core.qcow2"
+vm_vcpu_count: 2
+vm_ram_unit: MB
+vm_ram_size: 1024
+libvirt_pool_dir: "/media/LocalStorage/VMs/"
+vm_autostart: false
+vm_network: "nm-br.16"

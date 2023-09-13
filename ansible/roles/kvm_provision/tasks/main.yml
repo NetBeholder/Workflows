@@ -1,0 +1,57 @@
+---
+# tasks file for kvm_provision
+- name: Include vars for OS template (winsrv_2022_core)
+  include_vars: 
+    file: "winsrv_2022_core.yml"
+  when: os_template == "winsrv_2022_core"
+
+- name: Include vars for OS template (winsrv_2022_full)
+  include_vars: 
+    file: "winsrv_2022_full.yml"
+  when: os_template == "winsrv_2022_full"
+
+- name: Include vars for OS template (debian12)
+  include_vars: 
+    file: "debian12.yml"
+  when: os_template == "debian12"
+
+- name: Get VMs list
+  community.libvirt.virt:
+    command: list_vms
+  register: existing_vms
+  changed_when: no
+
+- name: print VMs list
+  ansible.builtin.debug:
+    var: existing_vms
+
+- name: Create VM if not exists
+  block:
+    - name: Check if disk already exists
+      ansible.builtin.stat:
+        path: "{{ libvirt_pool_dir }}/{{ vm_name }}_disk_1.qcow2"
+      register: disk_stat
+
+    - name: Copy disk image from template
+      copy:
+        dest:  "{{ libvirt_pool_dir }}/{{ vm_name }}_disk_1.qcow2"
+        src: "{{ libvirt_pool_dir }}/{{ base_image_template_name }}"
+        remote_src: true
+        mode: 0660
+        force: false
+          #      register: copy_template_results
+      when: not disk_stat.stat.exists
+
+    - name: Define vm
+      community.libvirt.virt:
+        command: define
+        xml: "{{ lookup('template', '{{ template_file }}') }}"
+          #autostart: {{ vm_autostart }}
+
+          #- name: Ensure VM is started
+          #community.libvirt.virt:
+          #name: "{{ vm_name }}"
+          #state: running
+
+  when: "vm_name not in existing_vms.list_vms"
+

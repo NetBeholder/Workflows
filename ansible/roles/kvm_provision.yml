@@ -1,0 +1,31 @@
+- name: Deploys VM
+  hosts: kvmhosts
+  gather_facts: yes
+  become: yes
+  vars:
+    #pool_dir: "/var/lib/libvirt/images"
+    vm: "test-debian12-n1"
+      #os_template: "winsrv_2022_core"
+      #os_template: "winsrv_2022_full"
+    os_template: "debian12"
+    vcpu_count: 2
+    ram_size: 2
+    ram_unit: "GB"
+    net: "nm-br.16"
+    autostart: false
+      #ssh_pub_key: "/home/rgerardi/.ssh/id_rsa.pub"
+
+  tasks:
+    - name: KVM Provision role
+      include_role:
+        name: kvm_provision
+      vars:
+        #libvirt_pool_dir: "{{ pool_dir }}"
+        vm_name: "{{ vm }}"
+        vm_vcpu_count: "{{ vcpu_count }}"
+        vm_ram_size: "{{ ram_size }}"
+        vm_ram_unit: "{{ ram_unit }}"
+        vm_network: "{{ net }}"
+        vm_autostart: "{{ autostart }}"
+        #cleanup_tmp: "{{ cleanup }}"
+        #ssh_key: "{{ ssh_pub_key }}"

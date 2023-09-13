@@ -1,0 +1,8 @@
+---
+template_file: "template-winsrv_2022_full.xml.j2"
+base_image_template_name: "template-winsrv_2022_full.qcow2"
+  #vm_vcpu_count: 2
+  #vm_ram_unit: MB
+  #vm_ram_size: 2048
+  #vm_autostart: false
+  #vm_network: "nm-br.16"
