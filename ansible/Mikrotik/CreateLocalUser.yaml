@@ -1,0 +1,45 @@
+---
+- hosts: mikrotik
+  gather_facts: false
+  vars:
+    ansible_connection: network_cli
+    ansible_network_os: routeros
+    ansible_become: true
+    ansible_become_method: enable
+    ansible_user: chr-automata
+    new_user: "mkr-test"
+    new_user_pass: !unsafe "P@ssw0rd"
+    new_user_role: full
+    new_user_comment: "user created by ansible"
+    reboot_flag: false
+
+  tasks:
+    
+    - name: generate keys pair for newly created user.
+      become: false
+      delegate_to: localhost
+      community.crypto.openssh_keypair:
+        path: keys/{{ new_user }}_ssh_rsa
+        type: rsa
+        mode: '0400'
+
+    - name: copy file from ansible controller to a network device
+      ansible.netcommon.net_put:
+        src: keys/{{ new_user }}_ssh_rsa.pub
+        dest: /{{ new_user }}_ssh_rsa.pub
+
+    - name: create local ROS user
+      routeros_command:
+        commands:
+          - /user/add name={{ new_user }} group={{ new_user_role }} password={{ new_user_pass }} comment="{{ new_user_comment }}"
+            #no_log: true
+
+    - name: import SSH key... 
+      routeros_command:
+        commands:
+          - /user/ssh-keys/import user={{ new_user }} public-key-file={{ new_user }}_ssh_rsa.pub
+
+    - name: remove SSH key file
+      routeros_command:
+        commands:
+          - /file/remove {{ new_user }}_ssh_rsa.pub
