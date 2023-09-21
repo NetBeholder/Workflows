@@ -1,0 +1,186 @@
+---
+- name: simple prepare new ROS-device
+  hosts: mikrotik
+  gather_facts: false
+  vars:
+    ansible_connection: network_cli
+    ansible_network_os: routeros
+    ansible_become: true
+    ansible_become_method: enable
+    ansible_user: chr-automata
+    hostname: "mkr-gw01"
+    bridge_name: br0
+    address_lists:
+      - name: Admin-AddrList
+        members:
+          - 192.168.128.0/24
+          - 192.168.129.0/24
+          - 10.1.2.3
+      - name: Servers-AddrList
+        members:
+          - 10.100.200.0/24
+      - name: Guests-AddrList
+        members:
+          - 192.168.200.0/24
+    tz: "Europe/Moscow"
+    NTP_servers:
+      - 0.ru.pool.ntp.org
+      - 1.ru.pool.ntp.org
+      - 2.ru.pool.ntp.org
+      - 3.ru.pool.ntp.org
+    interface_lists:
+      - name: LAN-IL
+        members:
+          - br0
+      - name: WAN-IL
+        members:
+          - ether2
+    ip_services:
+      - name: telnet
+        disabled: "yes"
+      - name: ftp 
+        disabled: "yes"
+      - name: www 
+        disabled: "yes"
+      - name: www-ssl
+        disabled: "yes"
+      - name: ssh
+        disabled: "no"
+      - name: winbox 
+        disabled: "no"
+      - name: api
+        disabled: "yes"
+      - name: api-ssl
+        disabled: "yes"
+    reboot_flag: "true"
+  tasks:
+    - name: configuring bridge block
+      block:
+
+        - name: catch admin mac for bridge
+          routeros_command:
+            commands: /interface/ethernet/print from=ether1
+          register: admin_mac
+
+        - name:
+          #shell: echo {{ admin_mac }} } | sed -n '3 p'
+          shell: echo {{ admin_mac }} } | sed -n '3 p' | awk '{print $5}'
+          register: mac_string
+
+        - name: bridge
+          debug:
+            msg: "{{ mac_string }}"
+        - name: bridge
+          routeros_command:
+            commands:
+              - /interface/bridge/add name={{ bridge_name }} admin-mac={{ mac_string.stdout }} auto-mac=no
+              - /interface/bridge/port/add bridge={{ bridge_name }} interface=ether1
+              - /ip/dhcp-client/add interface={{ bridge_name }}
+    
+        - name: set crutches for bridge interface up... (scheduler)
+          routeros_command:
+            commands:
+              - /system/scheduler/add name=RunStart on-event="/system/script/run disable_dhcpclient" policy=ftp,reboot,read,write,policy,test,password,sniff,sensitive,romon start-time=startup
+              - /system/script/add dont-require-permissions=no name=disable_dhcpclient owner=madmin policy=ftp,reboot,read,write,policy,test,password,sniff,sensitive,romon source="delay 10\r\n/ip/dhcp-client/remove ether1\r\n/ip/dhcp-client/disable {{ bridge_name }}\r\ndelay 3\r\n/ip/dhcp-client/enable {{ bridge_name }}"
+          when: reboot_flag == "true"
+
+        - name: system reboot
+          routeros_command:
+            commands: 
+              - :execute {/system/reboot}
+          async: 1
+          poll: 0
+          ignore_errors: true
+    
+            # - name: wait for server to restart
+            #   local_action:
+            #     module: wait_for
+            #       host=192.168.11.223
+            #       port=22
+            #       delay=45
+            #       #delay=15
+            #   when: reboot_flag == "true"
+
+        - name: Wait for server to restart
+          local_action:
+            module: wait_for
+              host="{{ inventory_hostname }}"
+              port=22
+              delay=45
+          when: reboot_flag == "true"
+
+        - name: remove script and scheduler 
+          routeros_command:
+            commands: 
+              - /system/scheduler/remove RunStart
+              - /system/script/remove disable_dhcpclient
+
+    - name: "Set time settings - tz, client"
+      routeros_command:
+        commands:
+          - /system/clock/set time-zone-name={{ tz }}
+          - /system/ntp/client/set enabled=yes
+    - name: "Set NTP server adresses"
+      routeros_command:
+        commands:
+          - /system/ntp/client/servers/add address={{ item }}
+      loop: "{{ NTP_servers }}"
+
+    - name: "Set hostname"
+      routeros_command:
+        commands:
+          - /system/identity/set name={{ hostname }}
+
+    - name: "Set DNS settings"
+      routeros_command:
+        commands:
+          - /tool/fetch url=https://cacerts.digicert.com/DigiCertGlobalRootCA.crt.pem
+          - /certificate/import file-name=DigiCertGlobalRootCA.crt.pem passphrase=""
+          - /ip/dns/set allow-remote-requests=yes use-doh-server=https://1.1.1.1/dns-query verify-doh-cert=yes
+
+    - name: "Create interface lists"
+      routeros_command:
+        commands:
+          - /interface/list/add name={{ item.name }}
+      loop: "{{ interface_lists }}"
+
+    - name: Add interfaces to Interface Lists
+      routeros_command:
+        commands:
+          - /interface/list/member/add interface={{ item.1 }} list={{ item.0.name }}
+      loop: "{{ interface_lists | subelements('members') }}"
+
+    - name: rename WAN-interfaces to more informative names
+      routeros_command:
+        commands:
+          - /interface/ethernet/set [ find default-name={{ item.1 }} ] name={{ item.1 }}-WAN
+            #- /interface/ethernet/set [ find default-name={{ item.1 }} ] name="{{ item.1 }}-WAN"
+      with_subelements: 
+        - "{{ interface_lists | selectattr('name','equalto','WAN-IL') }}"
+        - members
+        
+    - name: firewall
+      routeros_command:
+        commands:
+          - /ip/firewall/filter/add action=accept chain=input comment='Input":" accept established, related, untracked' connection-state=established,related,untracked
+
+            #    - name: copy file to mikrotik
+            #      ansible.netcommon.net_put:
+            #        src: test.yaml
+            #        dest: /test.yaml
+
+    - name: disable services
+      routeros_command:
+        commands:
+          - /ip/service/set {{ item.name }} disabled={{ item.disabled }}
+      loop: "{{ ip_services }}"
+
+    - name: copy fw config file to mikrotik
+      ansible.netcommon.net_put:
+        src: config/ip-fi-fi.rsc
+        dest: /ip-fi-fi.rsc
+
+    - name: import fw section
+      routeros_command:
+        commands:
+          - /import file-name=ip-fi-fi.rsc
