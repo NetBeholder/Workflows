@@ -1,0 +1,55 @@
+version: "3.8"
+services:
+  traefik:
+    image: traefik:latest
+    container_name: traefik
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+        #    environment:
+    environment:
+      - "REGRU_USERNAME=${REGRU_USERNAME}"
+      - "REGRU_PASSWORD=${REGRU_PASSWORD}"
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./data/traefik.yml:/traefik.yml:ro
+      - ./data/acme.json:/acme.json
+    command:
+      - "--api.insecure=true"
+      - "--log.level=DEBUG"
+        #      - "--certificatesresolvers.le.acme.dnschallenge=true"
+        #      - "--certificatesresolvers.le.acme.dnschallenge.provider=regru"
+        #      - "--certificatesresolvers.le.acme.email=${EMAIL}"
+        #      - "--certificatesresolvers.le.acme.storage=acme.json"
+        #      - "--certificatesresolvers.le.acme.caserver=https://acme-staging-v02.api.letsencrypt.org/directory"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.traefik.entrypoints=https"
+      - "traefik.http.routers.traefik.rule=Host(`${TRAEFIK_HOST}`)"
+      - "traefik.http.routers.traefik.tls=true"
+      - "traefik.http.routers.traefik.tls.certresolver=letsEncrypt"
+      - "traefik.http.routers.traefik.service=api@internal"
+        #      - "traefik.http.middlewares.test-ipwhitelist.ipwhitelist.sourcerange=127.0.0.1/32, 192.168.12.0/24"
+      - "traefik.http.middlewares.test-ipwhitelist.ipwhitelist.sourcerange=192.168.11.0/24"
+        #      - "traefik.http.middlewares.test-ipwhitelist.ipwhitelist.ipstrategy.excludedips=192.168.11.1251/24"
+      - "traefik.http.routers.traefik.middlewares=test-ipwhitelist@docker" # we apply our middleware
+        #      - "traefik.http.services.traefik-traefik.loadbalancer.server.port=433"
+        #      - "traefik.http.routers.traefik.middlewares=traefik-auth"
+        #      - "traefik.http.middlewares.traefik-auth.basicAuth.usersFile=/basic.auth"
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
+        # global redirect to https
+      - "traefik.http.routers.http-catchall.rule=hostregexp(`{TRAEFIK_HOST:.+}`)"
+      - "traefik.http.routers.http-catchall.entrypoints=http"
+      - "traefik.http.routers.http-catchall.middlewares=redirect-to-https"
+    networks:
+      - traefik-webproxy
+    ports:
+      - 443:443
+      - 80:80
+networks:
+  traefik-webproxy:
+    name: traefik-webproxy
+
+
+
