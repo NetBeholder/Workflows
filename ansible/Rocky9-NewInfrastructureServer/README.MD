@@ -1,10 +1,5 @@
 # Ansible playbook dedicated for configuring some typical basic OS settings (for RHEL-based like Rocky Linux):
 
-## run playbook
-```
-ansible-playbook PrepareServer.yml --ask-vault-pass --extra-vars '@passwd.yaml' -vv
-```
-
 ## Steps:
 
 1. Add EPEL, both free and nonfree RPMfusion repos
@@ -72,3 +67,10 @@ search_lists:
   - ad.lol-kek.lol
   - lol-kek.lol
 ```
+
+## run playbook
+```
+ansible-playbook PrepareServer.yml --ask-vault-pass --extra-vars '@passwd.yaml' -vv
+```
+There are multiple condition checks in the code
+The playbook can be executed multiple times against the same nodes.
