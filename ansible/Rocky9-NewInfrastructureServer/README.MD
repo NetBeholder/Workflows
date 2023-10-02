@@ -8,7 +8,7 @@
 6. Network settings for main interface (static IPv4, mask, gw, DNS serves and search domains)
 7. Loopback interface optionally can be set to managed by NetworkManager (and, as a result, by firewalld service too))
 8. Install some packages:
-          - bash-completion
+- bash-completion
           - curl
           - wget
           - htop
