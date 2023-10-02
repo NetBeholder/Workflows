@@ -1,5 +1,5 @@
 # Ansible playbook dedicated for configuring some typical basic OS settings (for RHEL-based like Rocky Linux):
-
+## Steps:
 1. Add EPEL, both free and nonfree RPMfusion repos
 2. Create user for remote management with key-based authentication
 3. Set hostname and FQDN
