@@ -38,9 +38,10 @@ ansible-playbook PrepareServer.yml --ask-vault-pass --extra-vars '@passwd.yaml' 
 - lf (no package is in repos: download to /opt/lf from github.com)
 
 ## List of defined vars (inventory, --extra-vars file).
-See hosts.yml.example and passwd.yaml.example.
-All sensitive data must be protected in production:
-```Yaml
+
+See `hosts.yml.example` and `passwd.yaml.example`.
+All sensitive *data mus*t be protected in production:
+```yaml
 #for ssh connection with ansible-playbook. root was disabled during OS installation
 ansible_user: rocky-admin
 ansible_ssh_pass: P@ssw0rd
