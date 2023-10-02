@@ -1,0 +1,439 @@
+# Initial Rocky Linux 9.3 configuration
+#
+#
+---
+- hosts: rocky9_preparehosts
+  become: true
+  vars:
+    #ssh_port: "22"
+    flag_print_facts: false
+    # configure default interface network settings (IP, mask, DNS settings)
+    flag_configure_interface: true
+    # configure NetworkManager to manage of loopback interface
+    flag_configure_lo_interface: false
+    flag_update_dnf_cache: true
+    flag_configure_time_settings: true
+    flag_configure_regional_settings: true
+    # users_list and lc_params_list will used for regional settings
+    users_list:
+      # User created during OS installation (root was disabled)
+      - "{{ ansible_user }}"
+      # User to create for remote management 
+      - "{{ AnsibleUserName }}"
+    # export LC_* will be added to user's bashrc  
+    # good candidate for var file
+    lc_params_list:
+      - export LC_TIME="ru_RU.UTF8"
+      - '#export LC_LANG="ru_RU.UTF-8"'
+      - '#export LC_CTYPE="ru_RU.UTF-8"'
+      - export LC_NUMERIC="ru_RU.UTF-8"
+      - export LC_TIME=ru_RU.UTF8
+      - export LC_COLLATE="ru_RU.UTF-8"
+      - export LC_MONETARY="ru_RU.UTF-8"
+      - '#export LC_MESSAGES="ru_RU.UTF-8"'
+      - export LC_PAPER="ru_RU.UTF-8"
+      - export LC_NAME="ru_RU.UTF-8"
+      - export LC_ADDRESS="ru_RU.UTF-8"
+      - export LC_TELEPHONE="ru_RU.UTF-8"
+      - export LC_MEASUREMENT="ru_RU.UTF-8"
+      - export LC_IDENTIFICATION="ru_RU.UTF-8"
+      - '#export LC_ALL='
+        #    users_lc_params_dict:
+        #      # User created during OS installation (root was disabled)
+        #      - { username_key: '{{ ansible_user }}', lc_params_key: '{{ lc_params }}' }
+        #      # User to create for remote management 
+        #      - { username_key: '{{ AnsibleUserName }}', lc_params_key: '{{ lc_params }}' }
+  pre_tasks:
+    - name: print facts
+      ansible.builtin.debug:
+        var: ansible_facts
+      when: flag_print_facts|bool
+
+    - name: DNF conf - set parallel downloads option
+      ansible.builtin.lineinfile:
+        path: /etc/dnf/dnf.conf
+        line: "max_parallel_downloads=10"
+
+    - name: DNF conf - set fastest mirrors option
+      ansible.builtin.lineinfile:
+        path: /etc/dnf/dnf.conf
+        line: "fastestmirror=True"
+          
+    - name: Add epel repo
+      ansible.builtin.dnf:
+        name: epel-release
+        state: present
+
+    - name: Update DNF cache 
+      ansible.builtin.dnf:
+        update_cache: true
+      when: flag_update_dnf_cache|bool
+
+    - name: Install updates
+      ansible.builtin.dnf:
+        update_only: true
+
+          #    - name: Update DNF cache
+          #      ansible.builtin.shell: dnf makecache
+          #    - name: create wheel group (for su restricted escalation via pam)
+          #      ansible.builtin.group:
+          #        name: wheel
+          #        system: yes
+          #        state: present
+  tasks:
+    - name: Creating user with sudo privileges for remote management
+      block:
+        - name: Check if user already exists
+          ansible.builtin.shell: cat /etc/shadow | grep "{{ AnsibleUserName }}:"
+          register: user_exists
+          changed_when: false
+          failed_when: user_exists.stderr != ""
+
+        - name: User {{ AnsibleUserName }} doesn't exists. Creating...
+          block:
+            - name: Create user with sudo privileges
+              ansible.builtin.user:
+                name: "{{ AnsibleUserName }}"
+                password: "{{ AnsibleUserName_passwd | password_hash('sha512') }}"
+                shell: /bin/bash
+                groups: wheel
+                append: yes
+        
+            - name: Sudoers settings for user {{ AnsibleUserName }}
+              copy:
+                dest: "/etc/sudoers.d/{{ AnsibleUserName }}"
+                content: |
+                  {{ AnsibleUserName }} ALL=(ALL) NOPASSWD:ALL
+        
+            - name: generate keys pair for newly created user.
+              become: false
+              delegate_to: localhost
+              community.crypto.openssh_keypair:
+                path: keys/{{ AnsibleUserName }}_ssh_ed25519
+                type: ed25519
+                mode: '0400'
+                force: false
+      
+            - name: Set authorized key taken from file on remote server
+              ansible.posix.authorized_key:
+                user: "{{ AnsibleUserName }}"
+                state: present
+                key: "{{ lookup('file', 'keys/{{ AnsibleUserName }}_ssh_ed25519.pub') }}"
+          when: '"{{ AnsibleUserName }}" not in user_exists.stdout'
+          # end block
+      # end block
+    - name: Configuring hostname settings
+      block:
+        - name: set /etc/hosts settings part 1
+          ansible.builtin.lineinfile:
+            path: /etc/hosts
+            search_string: '127.0.0.1'
+            line: "127.0.0.1\tlocalhost localhost4"
+        
+        - name: set /etc/hosts settings part 2
+          ansible.builtin.lineinfile:
+            path: /etc/hosts
+            search_string: '::1'
+            line: "::1\t\tlocalhost localhost6"
+    
+        - name: set FQDN for host
+          ansible.builtin.lineinfile:
+            path: /etc/hosts
+            insertbefore: BOF
+            line: "{{ host_fqdn }}"
+        
+        - name: check /etc/hostname
+          ansible.builtin.shell: cat /etc/hostname
+          register: host_hostname
+          changed_when: false
+    
+        - name: set hostname
+          ansible.builtin.shell: hostnamectl set-hostname {{ hostname }}
+          when: host_hostname.stdout != "{{ hostname }}"
+      #end block 
+    - name: Configuring time settings
+      block:
+        - name: check timezone
+          ansible.builtin.shell: timedatectl show | grep Timezone | cut -d "=" -f2
+          register: tz
+          changed_when: false
+    
+        - name: set host's timezone
+          ansible.builtin.command: timedatectl set-timezone {{ timezone }}
+          when: tz.stdout != "{{ timezone }}"
+    
+        - name: check time service
+          ansible.builtin.shell: timedatectl | grep "NTP service" | awk {'print $3'}
+          register: time_service_state
+          changed_when: false
+    
+            #    - name: debug
+            #      debug:
+            #        var: time_service_state
+    
+        - name: activate timesync service
+          ansible.builtin.command: timedatectl set-ntp on
+          when: time_service_state.stdout != "active"
+    
+        # comment old default time source
+        - name: "chrony.conf: set timesync sources"
+          ansible.builtin.replace:
+            path: /etc/chrony.conf
+            regexp: '^(pool.*)'
+            replace: '#\1\n\n### Time sources configured by ansible'
+    
+        - name: "chrony.conf: set time sync sources"
+          ansible.builtin.lineinfile:
+            path: /etc/chrony.conf
+            insertafter: '### Time sources configured by ansible'
+            line: server {{ item }}
+          with_items: "{{ ntp_servers|reverse }}"
+    
+        - name: "chrony.conf: ignore settings from DHCP"
+          ansible.builtin.lineinfile:
+            path: /etc/chrony.conf
+            search_string: 'sourcedir /run/chrony-dhcp'
+            line: '#sourcedir /run/chrony-dhcp'
+      always:        
+        - name: Restart chronyd service
+          ansible.builtin.service:
+            name: chronyd
+            state: restarted
+          changed_when: false
+      when: flag_configure_time_settings|bool
+
+    - name: Configuring locale
+      block:
+        - name: Install language package
+          ansible.builtin.dnf:
+            name:
+              glibc-langpack-ru
+
+        - name: Add LC_* vars to bashrc for user_list
+          ansible.builtin.lineinfile:
+            path: "/home/{{ item.0 }}/.bashrc"
+            insertafter: "# .bashrc"
+            line: "{{ item.1 }}"
+          loop:
+            "{{ users_list | product(lc_params_list) }}"
+      when:
+          flag_configure_regional_settings|bool
+
+    - name: Configuring NetworkManager profile for interface "{{ ansible_facts['default_ipv4']['interface'] }}"
+      block:
+        # check if interface was already configured and renamed by ansible
+        # search something like 'enpXsY_by_ansible'
+        - name: Check profile name for interface "{{ ansible_facts['default_ipv4']['interface'] }}"
+          ansible.builtin.shell: nmcli d s | grep "{{ ansible_facts['default_ipv4']['interface'] }}" | awk {'print $4'}
+          register: nm_ethernet_profile_name
+          changed_when: false
+
+        - name: Yes, need to configure interface "{{ ansible_facts['default_ipv4']['interface'] }}"
+          block:
+            - name: rename default profile for interface  "{{ ansible_facts['default_ipv4']['interface'] }}"
+              ansible.builtin.shell: nmcli connection modify "{{ ansible_facts['default_ipv4']['interface'] }}" type ethernet con-name "{{ ansible_facts['default_ipv4']['interface'] }}"_by_ansible
+              when: nm_ethernet_profile_name.stdout != "{{ ansible_facts['default_ipv4']['interface'] }}_by_ansible"
+        
+            - name: set IPv4 settings for interface "{{ ansible_facts['default_ipv4']['interface'] }}"
+              community.general.nmcli:
+                type: ethernet
+                conn_name: "{{ nm_ethernet_profile_name.stdout }}_by_ansible" #"{{ nm_conn_name }}"
+                ifname: "{{ ansible_facts['default_ipv4']['interface'] }}" #"{{ nm_ifname }}"
+                method4: manual
+                ip4: "{{ ansible_facts['default_ipv4']['address'] }}/{{ ansible_facts['default_ipv4']['prefix'] }}"
+                gw4: "{{ ansible_facts['default_ipv4']['gateway'] }}"
+                dns4: |
+                  {% for x in item.1 %}
+                    {{ x }}
+                  {% endfor %}
+                dns4_search: |
+                  {% for y in item.2 %}
+                    {{ y }}
+                  {% endfor %}
+                state: present
+              with_items:
+                - { 1: "{{ dns_servers }}", 2: "{{ search_lists }}" }
+          always:        
+            - name: Restart NetworkManager service
+              ansible.builtin.service:
+                name: NetworkManager
+                state: restarted
+          when: nm_ethernet_profile_name.stdout != "{{ ansible_facts['default_ipv4']['interface'] }}_by_ansible"
+          # end block
+      when: flag_configure_interface|bool
+      # end block
+
+    - name: Configuring lo interface
+      block:
+        - name: check status of loopback interface
+          ansible.builtin.shell: nmcli d s | grep "loopback" | grep -o "(externally)" | tr -d '()'
+          register: loopback_status
+          changed_when: false
+    
+        - name: nmcli add connection for loopback
+          ansible.builtin.shell: "nmcli connection add connection.id lo connection.type loopback connection.interface-name lo connection.autoconnect yes"
+          when: loopback_status.stdout == "externally"
+      when: flag_configure_lo_interface|bool
+
+    - name: Install standard software packages
+      ansible.builtin.dnf:
+        name:
+          - bash-completion
+          - curl
+          - wget
+          - htop
+          - git
+          - pwgen
+          - httpd-tools
+          - neovim
+          - nano
+          - bind-utils
+          - dnf-utils
+    #          - lf
+          - cifs-utils
+    #          - samba-client
+          - mtr
+          - psmisc
+          - mc
+          - tar
+          - unrar
+          - stow
+          - exa
+          - bat
+
+    - name: Check that the lf file exists
+      stat:
+        path: /opt/lf
+      register: stat_lf_result
+
+    - name: Download latest lf file manager...
+      ansible.builtin.shell: |
+        URN=$(curl -s https://github.com/gokcehan/lf/releases/ | grep "lf-linux-amd64.tar.gz" | grep "/gokcehan" | sed 's/.*href="//g;s/".*//g')
+        curl -LJO https://github.com$URN
+        tar -xvzf lf-linux-amd64.tar.gz
+        mv lf /opt/
+        rm lf*
+      when: not stat_lf_result.stat.exists
+      ignore_errors: true
+
+  post_tasks:
+    - name: Check if reboot is needed
+      ansible.builtin.shell: |
+        /usr/bin/needs-restarting
+        echo $?
+      register:
+        flag_needs_reboot
+        # "0" - no reboot needs
+        # "1" - reboot needs
+      changed_when: false 
+
+    - name: Reboot the machine if needed
+      ansible.builtin.reboot:
+        msg: "Rebooting machine..."
+      when:
+        flag_needs_reboot.stdout == "1"
+
+    #          - tree
+    #        state: present
+          #        "default_ipv4": {
+          #            "address": "192.168.16.33",
+          #            "alias": "enp1s0",
+          #            "broadcast": "192.168.16.255",
+          #            "gateway": "192.168.16.1",
+          #            "interface": "enp1s0",
+          #            "macaddress": "52:54:00:68:a4:45",
+          #            "mtu": 1500,
+          #            "netmask": "255.255.255.0",
+          #            "network": "192.168.16.0",
+          #            "prefix": "24",
+          #            "type": "ether"
+          #        },   #
+          #- hostvars[inventory_hostname]['default_ipv4']['address']
+          #ansible_hostname
+    #    - name: set timesyncd drop-in file(s)
+    #      ansible.builtin.template:
+    #        src: configs/etc/systemd/timesyncd.conf.d/10-enterprise-time-settings.conf.j2
+    #        dest: /etc/systemd/timesyncd.conf.d/10-enterprise-time-settings.conf
+    #        force: yes
+    #
+    #    - name: get ntp service status
+    #      ansible.builtin.shell: timedatectl status | grep "NTP service" | cut -d":" -f2 | xargs
+    #      register: NTP_service_state
+    #
+    #    - name: set NTP service state as active
+    #      ansible.builtin.command: timedatectl set-ntp true
+    #      when: NTP_service_state.stdout != "active"
+    #
+    #    - name: NetworkManager settings
+    #      apt:
+    #        pkg:
+    #          - network-manager
+    #
+    #    - name: check masked status for networking.service
+    #      ansible.builtin.shell: systemctl status networking.service | grep -o "masked" | uniq
+    #      register: networking_service_masked_status
+    #
+    #    - name: mask ifupdown service
+    #      ansible.builtin.command: systemctl mask networking.service
+    #      when: networking_service_masked_status.stdout != "masked"
+    #
+    #    - name: stop networking.service
+    #      ansible.builtin.service:
+    #        name: networking
+    #        state: stopped
+    #
+    #    - name: check interfaces file backup exists
+    #      stat:
+    #        path: /etc/network/interfaces.back
+    #      register: interfaces_file_status
+    #
+    #    - name: backup interfaces.file
+    #      shell: mv /etc/network/interfaces /etc/network/interfaces.back
+    #      when: not interfaces_file_status.stat.exists
+    #      register: interfaces_file_status
+    #
+    #    - name: nmcli add connection for ethernet
+    #      community.general.nmcli:
+    #        type: ethernet
+    #        conn_name: "{{ nm_conn_name }}"
+    #        ifname: "{{ nm_ifname }}"
+    #        method4: auto
+    #        state: present
+    #
+    #    - name: check status of loopback interface
+    #      ansible.builtin.shell: nmcli d s | grep "loopback" | grep -o "(externally)" | tr -d '()'
+    #      register: loopback_status
+    #
+    #    - name: nmcli add connection for loopback
+    #      ansible.builtin.shell: "nmcli connection add connection.id lo connection.type loopback connection.interface-name lo connection.autoconnect yes"
+    #      when: loopback_status.stdout == "externally"
+    #
+    #    - name: print interfaces_file_state
+    #      ansible.builtin.debug:
+    #        var: interfaces_file_status
+    #
+    #    - name: restarted NetworkManager service
+    #      ansible.builtin.service:
+    #        name: NetworkManager
+    #        state: restarted
+    #      when: interfaces_file_status
+    #
+    #    - name: install some packages 
+    #      apt:
+    #        pkg:
+    #          - git
+    #          - curl
+    #          - htop
+    #          - pwgen
+    #          - neovim
+    #          - lf
+    #          - bind9-dnsutils
+    #          - debian-goodies
+    #          - cifs-utils
+    #          - samba-client
+    #          - psmisc
+    #          - tree
+    #        state: latest
+
+
+

@@ -1,0 +1,7 @@
+#for ssh connection with ansible-playbook. root was disabled during OS installation
+ansible_user: rocky-admin
+ansible_ssh_pass: P@ssw0rd
+ansible_sudo_pass: P@ssw0rd
+# user will be created for remote management
+AnsibleUserName: rocky-ansible
+AnsibleUserName_passwd: Pa$$w0rd

@@ -1,0 +1,41 @@
+all:
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+      #ansible_become: yes
+      #ansible_become_method: sudo 
+  children:
+    ungrouped:
+      hosts:
+        10.200.200.20
+    region_ru:
+      vars:
+        ntp_servers:
+          - '0.ru.pool.ntp.org iburst'
+          - 1.ru.pool.ntp.org
+          - 2.ru.pool.ntp.org
+          - 3.ru.pool.ntp.org
+        timezone: "Europe/Moscow"
+        dns_servers:
+          - 10.200.200.20
+          - 10.200.200.21
+        search_lists:
+          - ipa.lol-kek.lol
+          - ad.lol-kek.lol
+          - lol-kek.lol
+      children:
+        linux:
+          vars:
+            #nm_ifname: "enp1s0"
+            #nm_conn_name: "enp1s0_by_ansible"
+          children:
+            #debian12:
+            rocky9:
+              children:
+                rocky9_preparehosts:
+                  hosts:
+                    10.200.222.22:
+                      #user: rocky-ansible
+                      #ssh_pub_key: "{{ lookup('file', '~/.ssh/rocky_ed25519.pub')  }}"
+                      hostname: rocky9-srv
+                      host_fqdn: rocky9-srv.ipa.lol-kek.lol
+                      #method4: "static"
