@@ -1,6 +1,6 @@
 # Ansible playbook dedicated for configuring some typical basic OS settings (for RHEL-based like Rocky Linux):
 
-## Steps:
+## Settings:
 
 1. Add EPEL, both free and nonfree RPMfusion repos
 2. Create user for remote management with key-based authentication
@@ -10,32 +10,32 @@
 6. Network settings for main interface (static IPv4, mask, gw, DNS servers and search domains)
 7. Loopback interface optionally can be set to managed by NetworkManager (and, as a result, by firewalld service too))
 8. Install some packages:
-- bash-completion
-- curl
-- wget
-- htop
-- git
-- pwgen
-- httpd-tools
-- neovim
-- nano
-- bind-utils
-- dnf-utils
-- cifs-utils
-- mtr
-- psmisc
-- mc
-- tar
-- unrar
-- stow
-- exa
-- bat
-- lf (no package is in repos: download to /opt/lf from github.com)
+  - bash-completion
+  - curl
+  - wget
+  - htop
+  - git
+  - pwgen
+  - httpd-tools
+  - neovim
+  - nano
+  - bind-utils
+  - dnf-utils
+  - cifs-utils
+  - mtr
+  - psmisc
+  - mc
+  - tar
+  - unrar
+  - stow
+  - exa
+  - bat
+  - lf (no package is in repos: download to /opt/lf from github.com)
 
 ## List of defined vars (inventory, --extra-vars file).
 
 See `hosts.yml.example` and `passwd.yaml.example`.
-All sensitive *data mus*t be protected in production:
+All sensitive data *must be* protected in production:
 ```yaml
 #for ssh connection with ansible-playbook. root was disabled during OS installation
 ansible_user: rocky-admin
@@ -68,7 +68,7 @@ search_lists:
   - lol-kek.lol
 ```
 
-## run playbook
+## Run playbook
 ```
 ansible-playbook PrepareServer.yml --ask-vault-pass --extra-vars '@passwd.yaml' -vv
 ```
