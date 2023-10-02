@@ -35,7 +35,7 @@
 ## List of defined vars (inventory, --extra-vars file).
 
 See `hosts.yml.example` and `passwd.yaml.example`.
-All sensitive data *must be* protected in production:
+All sensitive data *should be* protected in production. Please remember to use [Ansible Vault](https://docs.ansible.com/ansible/latest/vault_guide/index.html) for passwords. The examples here are not using vault for better readability.:
 ```yaml
 #for ssh connection with ansible-playbook. root was disabled during OS installation
 ansible_user: rocky-admin
