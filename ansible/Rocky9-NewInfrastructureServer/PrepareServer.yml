@@ -1,4 +1,4 @@
-# Initial Rocky Linux 9.3 configuration
+# Initial Rocky Linux 9.x configuration
 #
 #
 ---
@@ -7,7 +7,7 @@
   vars:
     #ssh_port: "22"
     flag_print_facts: false
-    # configure default interface network settings (IP, mask, DNS settings)
+    # configure default interface network settings (IP/mask, GW, DNS settings)
     flag_configure_interface: true
     # configure NetworkManager to manage of loopback interface
     flag_configure_lo_interface: false
@@ -20,29 +20,6 @@
       - "{{ ansible_user }}"
       # User to create for remote management 
       - "{{ AnsibleUserName }}"
-    # export LC_* will be added to user's bashrc  
-    # good candidate for var file
-    lc_params_list:
-      - export LC_TIME="ru_RU.UTF8"
-      - '#export LC_LANG="ru_RU.UTF-8"'
-      - '#export LC_CTYPE="ru_RU.UTF-8"'
-      - export LC_NUMERIC="ru_RU.UTF-8"
-      - export LC_TIME=ru_RU.UTF8
-      - export LC_COLLATE="ru_RU.UTF-8"
-      - export LC_MONETARY="ru_RU.UTF-8"
-      - '#export LC_MESSAGES="ru_RU.UTF-8"'
-      - export LC_PAPER="ru_RU.UTF-8"
-      - export LC_NAME="ru_RU.UTF-8"
-      - export LC_ADDRESS="ru_RU.UTF-8"
-      - export LC_TELEPHONE="ru_RU.UTF-8"
-      - export LC_MEASUREMENT="ru_RU.UTF-8"
-      - export LC_IDENTIFICATION="ru_RU.UTF-8"
-      - '#export LC_ALL='
-        #    users_lc_params_dict:
-        #      # User created during OS installation (root was disabled)
-        #      - { username_key: '{{ ansible_user }}', lc_params_key: '{{ lc_params }}' }
-        #      # User to create for remote management 
-        #      - { username_key: '{{ AnsibleUserName }}', lc_params_key: '{{ lc_params }}' }
   pre_tasks:
     - name: print facts
       ansible.builtin.debug:
@@ -59,10 +36,24 @@
         path: /etc/dnf/dnf.conf
         line: "fastestmirror=True"
           
-    - name: Add epel repo
+          #    - name: Add epel repo
+          #      ansible.builtin.dnf:
+          #        name: epel-release
+          #        state: present
+    - name: Add additional repos - EPEL
       ansible.builtin.dnf:
         name: epel-release
         state: present
+
+    - name: Add additional repos - RPMFusion (free)
+      ansible.builtin.shell: dnf install --nogpgcheck https://mirrors.rpmfusion.org/free/el/rpmfusion-free-release-$(rpm -E %rhel).noarch.rpm -y
+      register: cmd_state
+      changed_when: '"is already installed" not in cmd_state.stdout'
+
+    - name: Add additional repos - RPMFusion (nonfree)
+      ansible.builtin.shell: dnf install --nogpgcheck https://mirrors.rpmfusion.org/nonfree/el/rpmfusion-nonfree-release-$(rpm -E %rhel).noarch.rpm -y
+      register: cmd_state
+      changed_when: '"is already installed" not in cmd_state.stdout'
 
     - name: Update DNF cache 
       ansible.builtin.dnf:
@@ -75,11 +66,6 @@
 
           #    - name: Update DNF cache
           #      ansible.builtin.shell: dnf makecache
-          #    - name: create wheel group (for su restricted escalation via pam)
-          #      ansible.builtin.group:
-          #        name: wheel
-          #        system: yes
-          #        state: present
   tasks:
     - name: Creating user with sudo privileges for remote management
       block:
@@ -204,10 +190,16 @@
 
     - name: Configuring locale
       block:
-        - name: Install language package
+        - name: Download regional settings from {{ regional_settings }} vars
+          ansible.builtin.include_vars:
+            file: vars/ru_lc_params.yaml
+          when: regional_settings == "ru"
+
+        - name: Install language packages
           ansible.builtin.dnf:
             name:
-              glibc-langpack-ru
+              - glibc-langpack-ru
+              - libxkbcommon-x11
 
         - name: Add LC_* vars to bashrc for user_list
           ansible.builtin.lineinfile:
@@ -216,6 +208,7 @@
             line: "{{ item.1 }}"
           loop:
             "{{ users_list | product(lc_params_list) }}"
+          when: lc_params_list is defined
       when:
           flag_configure_regional_settings|bool
 

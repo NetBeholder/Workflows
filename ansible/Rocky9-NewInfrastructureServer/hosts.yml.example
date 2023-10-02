@@ -9,6 +9,7 @@ all:
         10.200.200.20
     region_ru:
       vars:
+        regional_settings: "ru"
         ntp_servers:
           - '0.ru.pool.ntp.org iburst'
           - 1.ru.pool.ntp.org
