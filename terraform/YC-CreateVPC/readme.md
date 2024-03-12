@@ -2,7 +2,7 @@
 
 ## Scenario:
 1. Create VPC with 3 subnets:
-   - VPC: my-yc-vpc-network
+   - VPC: var.vpc = my-yc-vpc-network
    - subnet-10-200-0-0:
      - AZ: zone_a
       - cidr: 10-200-0-0/24
