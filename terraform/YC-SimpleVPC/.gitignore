@@ -1,0 +1,19 @@
+# Local erraform dirs
+**/.terraform/*
+
+# tfstate
+*.tfstate
+*.tfstate.*
+
+override.tf
+override.tf.json
+
+# crash logs
+crash.log
+crash.*.log
+
+*.tfvars
+*.tfvars.json
+
+.terraformrc
+terraform.rc
