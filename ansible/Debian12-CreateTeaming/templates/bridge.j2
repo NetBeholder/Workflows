@@ -1,0 +1,11 @@
+auto {{ item.name }}
+{% if item.ip_settings.address != "none" %}
+iface {{ item.name }} inet static
+  address {{ item.ip_settings.address }}
+{% if item.ip_settings.gateway != "none" %}
+  gateway {{ item.ip_settings.gateway }} 
+{% endif %}
+{% else %}
+iface {{ item.name }} inet manual
+{% endif %}
+bridge_ports {{ item.parent_interface }}

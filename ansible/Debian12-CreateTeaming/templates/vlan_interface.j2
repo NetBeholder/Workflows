@@ -1,0 +1,11 @@
+auto {{ item.parent_interface }}.{{ item.name }}
+{% if item.ip_settings.address != "none" %}
+iface {{ item.parent_interface }}.{{ item.name }} inet static
+  address {{ item.ip_settings.address }}
+  {% if item.ip_settings.gateway != "none" %}
+  gateway {{ item.ip_settings.gateway }}
+  {% endif %}
+{% else %}
+iface {{ item.parent_interface }}.{{ item.name }} inet manual
+{% endif %}
+vlan_raw_device {{ item.parent_interface }}
