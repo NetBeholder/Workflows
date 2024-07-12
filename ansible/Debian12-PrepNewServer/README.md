@@ -4,9 +4,9 @@
 
 1. Create users from both SystemUsers and NormalUsers lists of general_settings['Users'] with ed25519 keys and some LC_x settings.
 2. Configure network settings:
-    a. Fullfill /etc/network/interfaces from net_config['interfaces']
-    b. DNS-related settings from net_config['DNS'] and net_config['Names']
-    c. Time settings from general_settings['Time']
+    1. Fullfill /etc/network/interfaces from net_config['interfaces']
+    2. DNS-related settings from net_config['DNS'] and net_config['Names']
+    3. Time settings from general_settings['Time']
 3. Install locales from general_settings['RegionalSettings']['Locales']
 4. Install some packages:
     - sudo
@@ -130,9 +130,9 @@ The second list, in turn, is intended for creating user accounts.
 ```
 
 All sensitive data *should be* protected in production. Please remember to use [Ansible Vault](https://docs.ansible.com/ansible/latest/vault_guide/index.html) for passwords. The examples here are not using vault for better readability.:
-```yaml
 
 ## Run playbook
+
 ```
 ansible-playbook PrepareServer.yml --ask-vault-pass --extra-vars '@passwd.yaml' -vv
 ```
