@@ -1,4 +1,4 @@
-# Ansible playbook dedicated for configuring some typical basic OS settings (for RHEL-based like Rocky Linux):
+# Ansible playbook dedicated for configuring some typical basic OS settings (for Debian-based like Debian 12 GNU/Linux):
 
 ## Settings:
 
