@@ -187,7 +187,7 @@
         #  when: item.ip_settings != 'auto'
         - name: Create new interface file
           ansible.builtin.copy:
-            dest: "/etc/network/interfaces2"
+            dest: "/etc/network/interfaces"
             content: |
               source /etc/network/interfaces.d/*
 
