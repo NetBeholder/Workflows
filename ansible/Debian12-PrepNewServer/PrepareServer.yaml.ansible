@@ -1,0 +1,319 @@
+# Initial Debian 12 Server setup
+#
+#
+---
+- hosts: Debian12_PrepareNewHosts
+  become: true
+  vars:
+    # ssh_port: "22"
+    net_config:
+      interfaces:
+        # any combination
+        - name: enp2s0
+          ip_settings: auto
+        - name: enp3s0
+          ip_settings:
+            address: 192.168.16.100/24
+            gateway: 192.168.16.1
+            dns-nameserver:
+              - 8.8.8.8
+              - 8.8.4.4
+            dns-search:
+              - lol-kek.lol
+        - name: enp4s0
+          ip_settings:
+            address: 192.168.17.100/24
+      DNS:
+        Servers:
+          - 8.8.8.8
+          - 8.8.4.4
+        # Search:
+        #          - lol-kek.lol
+        #          - example.com
+        Names:
+          hostname: debsrv
+          domain: lol-kek.lol
+    general_settings:
+      Time:
+        TZ: "Europe/Moscow"
+        hwclock: "UTC" # local|UTC
+        sources:
+          - 0.ru.pool.ntp.org
+          - 1.ru.pool.ntp.org
+          - 2.ru.pool.ntp.org
+          - 3.ru.pool.ntp.org
+      RegionalSettings:
+        Locales:
+          - ru_RU.UTF-8
+          - en_US.UTF-8
+        lc:
+          us:
+            lc_params:
+              - export LC_ALL=en_US.UTF8
+          ru:
+            lc_params:
+              - export LC_TIME="ru_RU.UTF8"
+              - '#export LC_LANG="ru_RU.UTF-8"'
+              - '#export LC_CTYPE="ru_RU.UTF-8"'
+              - export LC_NUMERIC="ru_RU.UTF-8"
+              - export LC_TIME=ru_RU.UTF8
+              - export LC_COLLATE="ru_RU.UTF-8"
+              - export LC_MONETARY="ru_RU.UTF-8"
+              - '#export LC_MESSAGES="ru_RU.UTF-8"'
+              - export LC_PAPER="ru_RU.UTF-8"
+              - export LC_NAME="ru_RU.UTF-8"
+              - export LC_ADDRESS="ru_RU.UTF-8"
+              - export LC_TELEPHONE="ru_RU.UTF-8"
+              - export LC_MEASUREMENT="ru_RU.UTF-8"
+              - export LC_IDENTIFICATION="ru_RU.UTF-8"
+              - '#export LC_ALL='
+      Users:
+        SystemUsers:
+          - name: automata
+            password: P@ssw0rd
+            groups: sudo
+            #shell: /sbin/nologin
+            #shell: /bin/bash
+            create_home: true
+        NormalUsers:
+          - name: petya
+            lc: us
+            groups: sudo
+          - name: vasya
+            lc: ru
+            groups: sudo
+    AnsibleUserName: automata
+    AnsibleUserName_passwd: P@ssw0rd
+    flags:
+      create_system_users_flag: true
+      create_normal_users_flag: true
+      configure_dns_settings_flag: true
+      configure_time_settings_flag: true
+      configure_system_locales_flag: true
+  pre_tasks:
+    - name: apt update
+      apt:
+        update_cache: true
+        cache_valid_time: 900
+    #
+    - name: apt upgrade
+      apt:
+        upgrade: true
+    #
+    - name: check/install some packages
+      apt:
+        pkg:
+          - sudo
+          - resolvconf
+        state: latest
+  tasks:
+    #
+    - name: "Create service users"
+      block:
+        - name: generate keys pair for newly created user.
+          become: false
+          delegate_to: localhost
+          community.crypto.openssh_keypair:
+            path: keys/{{ item.name }}_ssh_ed25519
+            type: ed25519
+            mode: '0400'
+          loop: "{{ general_settings['Users']['SystemUsers'] }}"
+        #
+        - name: create [system] users
+          ansible.builtin.user:
+            name: "{{ item.name }}"
+            password: "{{ item.password | password_hash('sha512') }}"
+            # shell: "{{ item.shell }}"
+            groups: "{{ item.groups }}"
+            append: true
+            create_home: "{{ item.create_home }}"
+          loop: "{{ general_settings['Users']['SystemUsers'] }}"
+        #
+        - name: set authorized key taken from file on remote server
+          ansible.posix.authorized_key:
+            user: "{{ item.name }}"
+            state: present
+            key: "{{ lookup('file', 'keys/{{ item.name }}_ssh_ed25519.pub') }}"
+          loop: "{{ general_settings['Users']['SystemUsers'] }}"
+        #
+        - name: sudoers settings for user {{ item.name }}
+          copy:
+            dest: "/etc/sudoers.d/{{ item.name }}"
+            content: |
+              {{ item.name }} ALL=(ALL) NOPASSWD:ALL
+          loop: "{{ general_settings['Users']['SystemUsers'] }}"
+        #
+      when: flags['create_system_users_flag'] == true
+      # end block
+    #
+    - name: "Create normal users"
+      block:
+        - name: generate keys pair for newly created user.
+          become: false
+          delegate_to: localhost
+          community.crypto.openssh_keypair:
+            path: keys/{{ item.name }}_ssh_ed25519
+            type: ed25519
+            mode: '0400'
+          loop: "{{ general_settings['Users']['NormalUsers'] }}"
+        #
+        - name: create [normal] users
+          ansible.builtin.user:
+            name: "{{ item.name }}"
+            # password: "{{ item.password | password_hash('sha512') }}"
+            # shell: "{{ item.shell }}"
+            groups: "{{ item.groups }}"
+            append: true
+            #create_home: "{{ item.create_home }}"
+          loop: "{{ general_settings['Users']['NormalUsers'] }}"
+        #
+        - name: sudoers settings for user {{ item.name }}
+          copy:
+            dest: "/etc/sudoers.d/{{ item.name }}"
+            content: |
+              {{ item.name }} ALL=(ALL) NOPASSWD:ALL
+          loop: "{{ general_settings['Users']['NormalUsers'] }}"
+        #
+        - name: Set authorized key taken from file on remote server
+          ansible.posix.authorized_key:
+            user: "{{ item.name }}"
+            state: present
+            key: "{{ lookup('file', 'keys/{{ item.name }}_ssh_ed25519.pub') }}"
+          loop: "{{ general_settings['Users']['NormalUsers'] }}"
+      when: flags['create_normal_users_flag'] == true
+      # end block
+    - name: "Network settings"
+      block:
+        #  when: item.ip_settings != 'auto'
+        - name: Create new interface file
+          ansible.builtin.copy:
+            dest: "/etc/network/interfaces2"
+            content: |
+              source /etc/network/interfaces.d/*
+
+              auto lo
+              iface lo inet loopback
+
+              # created by Ansible
+            backup: true
+        #
+        - name: IP settings...
+          ansible.builtin.copy:
+            dest: "/etc/network/interfaces.d/{{ item.name }}"
+            content: |
+              auto {{ item.name }}
+              allow-hotplug {{ item.name }}
+              {% if item.ip_settings == "auto" %}
+              iface {{ item.name }} inet dhcp
+              {% else %}
+              iface {{ item.name }} inet static
+                address {{ item.ip_settings.address }}
+                {% if item.ip_settings.gateway is defined %}
+              gateway {{ item.ip_settings.gateway }}
+                {% endif %}
+              {% endif %}
+          with_items: "{{ net_config['interfaces'] }}"
+    - name: "DNS Settings"
+      block:
+        - name: "Hostname and /etc/hosts"
+          block:
+            - name: set /etc/hosts settings part 1
+              ansible.builtin.lineinfile:
+                path: /etc/hosts
+                search_string: '127.0.0.1'
+                line: "127.0.0.1\tlocalhost"
+            #
+            - name: set /etc/hosts settings part 2
+              ansible.builtin.lineinfile:
+                path: /etc/hosts
+                search_string: '127.0.1.1'
+                line: "127.0.1.1\t{{ net_config['DNS']['Names']['hostname'] }}.{{ net_config['DNS']['Names']['domain'] }}\t{{ net_config['DNS']['Names']['hostname'] }}"
+            #
+            - name: "set resolv.conf settings"
+              ansible.builtin.copy:
+                dest: "/etc/resolvconf/resolv.conf.d/head"
+                content: |
+                  # Dynamic resolv.conf(5) file for glibc resolver(3) generated by resolvconf(8)
+                  #     DO NOT EDIT THIS FILE BY HAND -- YOUR CHANGES WILL BE OVERWRITTEN
+                  # 127.0.0.53 is the systemd-resolved stub resolver.
+                  # run "resolvectl status" to see details about the actual nameservers.
+                  #
+                  # Create by Ansible
+                  {% for ns in net_config['DNS']['Servers'] %}
+                  nameserver {{ ns }}
+                  {% endfor %}
+                  {% if net_config['DNS']['Search'] is defined %}
+                  search {% for s in net_config['DNS']['Search'] %}
+                  {{ s }} {% endfor %}
+                  {% endif %}
+                backup: true
+            #
+            - name: update resolv.conf
+              ansible.builtin.shell: resolvconf -u
+            - name: "Set hostname"
+              ansible.builtin.hostname:
+                name: "{{ net_config['DNS']['Names']['hostname'] }}"
+      when: flags['configure_dns_settings_flag'] == true
+    # end block
+    - name: "Time settings"
+      block:
+        - name: "set timezone"
+          community.general.timezone:
+            name: "{{ general_settings['Time']['TZ'] }}"
+            hwclock: "{{ general_settings['Time']['hwclock'] }}"
+        #
+        - name: create drop-in folder for timcesyncd configs
+          ansible.builtin.file:
+            dest: /etc/systemd/timesyncd.conf.d/
+            state: directory
+        #
+        - name: set timesyncd drop-in file(s)
+          ansible.builtin.copy:
+            dest: /etc/systemd/timesyncd.conf.d/10-enterprise-time-settings.conf
+            content: |
+              [Time]
+              NTP={% for s in general_settings['Time']['sources'] %}
+              {{ s }} {% endfor %}
+      # end block
+    #
+    - name: install locales
+      community.general.locale_gen:
+        name: "{{ item }}"
+        state: present
+      loop:
+        "{{ general_settings['RegionalSettings']['Locales'] }}"
+      when: flags['configure_system_locales_flag'] == true
+      #the last position will become the system locale
+      #
+
+    - name: install some packages
+      apt:
+        pkg:
+          - git
+          - curl
+          - htop
+          - pwgen
+          - neovim
+          - lf
+          - bind9-dnsutils
+          - debian-goodies
+          - cifs-utils
+          - samba-client
+          - psmisc
+          - tree
+        state: latest
+  post_tasks:
+    - name: check if reboot is needed
+      ansible.builtin.shell: |
+        /usr/sbin/checkrestart
+      register:
+        flag_needs_reboot
+      changed_when: false
+    #     # Unfortunately, this method does not work, it always returns 0
+    #    - name: reboot the machine if needed
+    #      ansible.builtin.reboot:
+    #        msg: "Rebooting the machine..."
+    #      when:
+    #        flag_needs_reboot.stdout == "1"
+    #     # Unfortunately, this method does not work, it always returns 0
+
