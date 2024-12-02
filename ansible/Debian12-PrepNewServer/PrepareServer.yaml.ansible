@@ -8,8 +8,7 @@
     # ssh_port: "22"
     net_config:
       interfaces:
-        # any combination
-        - name: enp2s0
+        - name: enp1s0
           ip_settings: auto
         - name: enp3s0
           ip_settings:
@@ -69,12 +68,21 @@
               - '#export LC_ALL='
       Users:
         SystemUsers:
-          - name: automata
-            password: P@ssw0rd
-            groups: sudo
+          # comming from ansible-vault
+          - name: "{{ AnsibleUserName }}"
+            password: "{{ AnsibleUserName_passwd }}" #| password_hash('sha512') }}"
+            groups:
+              - sudo
+              - voice
             #shell: /sbin/nologin
-            #shell: /bin/bash
+            shell: /bin/bash
             create_home: true
+          # plain text option
+          - name: monitoring
+            password: "P@ssw0rd"
+            groups: users
+            create_home: false
+            shell: /sbin/nologin
         NormalUsers:
           - name: petya
             lc: us
@@ -82,11 +90,13 @@
           - name: vasya
             lc: ru
             groups: sudo
-    AnsibleUserName: automata
-    AnsibleUserName_passwd: P@ssw0rd
+          - name: kolya
+            lc: ru
+            groups: sudo
     flags:
       create_system_users_flag: true
       create_normal_users_flag: true
+      create_user_flag: false
       configure_dns_settings_flag: true
       configure_time_settings_flag: true
       configure_system_locales_flag: true
@@ -105,6 +115,7 @@
         pkg:
           - sudo
           - resolvconf
+          - ifupdown2
         state: latest
   tasks:
     #
@@ -118,23 +129,25 @@
             type: ed25519
             mode: '0400'
           loop: "{{ general_settings['Users']['SystemUsers'] }}"
+          when: item.create_home == true
         #
         - name: create [system] users
           ansible.builtin.user:
             name: "{{ item.name }}"
             password: "{{ item.password | password_hash('sha512') }}"
-            # shell: "{{ item.shell }}"
-            groups: "{{ item.groups }}"
+            shell: "{{ item.shell }}"
+            groups: "{{ item.groups|default(sudo)}}"
             append: true
             create_home: "{{ item.create_home }}"
           loop: "{{ general_settings['Users']['SystemUsers'] }}"
         #
-        - name: set authorized key taken from file on remote server
+        - name: Set authorized key taken from file on remote server
           ansible.posix.authorized_key:
             user: "{{ item.name }}"
             state: present
             key: "{{ lookup('file', 'keys/{{ item.name }}_ssh_ed25519.pub') }}"
           loop: "{{ general_settings['Users']['SystemUsers'] }}"
+          when: item.create_home == true
         #
         - name: sudoers settings for user {{ item.name }}
           copy:
@@ -144,6 +157,7 @@
           loop: "{{ general_settings['Users']['SystemUsers'] }}"
         #
       when: flags['create_system_users_flag'] == true
+      no_log: true
       # end block
     #
     - name: "Create normal users"
@@ -250,6 +264,8 @@
             #
             - name: update resolv.conf
               ansible.builtin.shell: resolvconf -u
+              changed_when: false
+            #
             - name: "Set hostname"
               ansible.builtin.hostname:
                 name: "{{ net_config['DNS']['Names']['hostname'] }}"
@@ -274,16 +290,22 @@
               [Time]
               NTP={% for s in general_settings['Time']['sources'] %}
               {{ s }} {% endfor %}
+            #- name: check /etc/hostname
+            #  ansible.builtin.shell: cat /etc/hostname
+            #  register: host_hostname
+            ##
+            #- name: set hostname
+            #  ansible.builtin.shell: hostnamectl set-hostname {{ hostname }}
+            #  when: host_hostname.stdout != "{{ hostname }}"
       # end block
     #
-    - name: install locales
+    - name: "locales"
       community.general.locale_gen:
         name: "{{ item }}"
         state: present
       loop:
         "{{ general_settings['RegionalSettings']['Locales'] }}"
       when: flags['configure_system_locales_flag'] == true
-      #the last position will become the system locale
       #
 
     - name: install some packages
@@ -309,11 +331,10 @@
       register:
         flag_needs_reboot
       changed_when: false
-    #     # Unfortunately, this method does not work, it always returns 0
+    #
     #    - name: reboot the machine if needed
     #      ansible.builtin.reboot:
     #        msg: "Rebooting the machine..."
     #      when:
     #        flag_needs_reboot.stdout == "1"
-    #     # Unfortunately, this method does not work, it always returns 0
-
+    #        
